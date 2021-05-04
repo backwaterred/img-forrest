@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io;
 use std::fs;
 use std::sync::Mutex;
@@ -8,7 +7,7 @@ use actix_session::{
     CookieSession, Session
 };
 use actix_web::{
-    App, HttpResponse, HttpServer, web,
+    App, http, HttpResponse, HttpServer, web,
 };
 use base64;
 use serde::{
@@ -18,14 +17,20 @@ use serde::{
 #[cfg(test)]
 mod server_test;
 
+mod database;
+use crate::database::{
+    DiskCache, HBT,
+    Table,
+};
+
 const SERV_PRIVATE_KEY: [u8; 32] = [0; 32];
 macro_rules! default_user_table(
     () =>
     {{
-        let mut utable = HashMap::new();
+        let mut utable = HBT::new();
 
-        utable.insert(String::from("test-user"),
-                      User{ hpass: String::from("5f4dcc3b5aa765d61d8327deb882cf99") });
+        utable.set(String::from("test-user"),
+                   User{ hpass: String::from("5f4dcc3b5aa765d61d8327deb882cf99") });
 
         utable
     }};
@@ -33,8 +38,8 @@ macro_rules! default_user_table(
 
 // ---- DataTypes ----
 
-type UserToken = String;
-type UserTable = HashMap<UserToken, User>;
+type UserKey = String;
+type UserTable = HBT<UserKey, User>;
 
 struct User
 {
@@ -42,45 +47,53 @@ struct User
     hpass: String,
 }
 
-type ImageToken = String;
-type ImageCache = HashMap<ImageToken, Image>;
-//type ImageCache = HashMap<UserToken, HashMap<ImageToken, Image>>;
+type ImageKey = String;
+type ImageTable = DiskCache<ImageKey, Image>;
 
+#[derive(Serialize)]
 struct Image
 {
     public: bool,
-    owner: UserToken,
+    owner: UserKey,
     data: Vec<u8>,
 }
 
 struct Database
 {
     utable: UserTable,
-    icache: ImageCache,
+    icache: ImageTable,
 }
 
 #[derive(Deserialize)]
 struct AddRequest
 {
-    id: ImageToken,
+    // public: Option<bool>,
+    id: ImageKey,
     img: String,
 }
 
 #[derive(Deserialize)]
 struct RmRequest
 {
-    id: ImageToken,
+    id: ImageKey,
 }
+
+#[derive(Deserialize)]
+struct ViewRequest
+{
+    id: ImageKey,
+}
+
 #[derive(Deserialize)]
 struct LogonRequest
 {
-    uname: UserToken,
+    uname: UserKey,
     hpass: String,
 }
 
 // ---- User Procedures ----
 
-fn add_img(db: &mut Database, req: &AddRequest) -> HttpResponse
+fn add_img(db: &mut Database, sess: &Session, req: &AddRequest) -> HttpResponse
 {
     if !db.icache.contains_key(&req.id)
     {
@@ -92,9 +105,11 @@ fn add_img(db: &mut Database, req: &AddRequest) -> HttpResponse
                 return HttpResponse::InternalServerError().body(format!("{:?}", e)),
         };
 
-        db.icache.insert(req.id.clone(), Image {
+        db.icache.set(req.id.clone(), Image {
+            // TODO: Users should be able to specify public/private in the AddRequest
             public: false,
-            owner: String::from("User-Token-Placeholder"),
+            // TODO: Fix below. This should be the id of the current user
+            owner: String::from("User-Toke-Placeholder"),
             data: img_data,
         });
 
@@ -111,7 +126,7 @@ fn add_img_dispatch(db: web::Data<Mutex<Database>>, sess: Session, req: web::Jso
     match db.lock()
     {
         Ok(mut db) =>
-            add_img(&mut db, &req.into_inner()),
+            add_img(&mut db, &sess, &req.into_inner()),
         Err(e) =>
             return HttpResponse::InternalServerError().body(format!("{:?}", e)),
     }
@@ -135,6 +150,31 @@ fn remove_img_dispatch(db: web::Data<Mutex<Database>>, sess: Session, req: web::
     {
         Ok(mut db) =>
             remove_img(&mut db, &req.into_inner()),
+        Err(e) =>
+            return HttpResponse::InternalServerError().body(format!("{:?}", e)),
+    }
+}
+
+fn view_img(db: &mut Database, sess: &Session, id: &String) -> HttpResponse
+{
+    if let Some(img) = db.icache.get(id)
+    {
+        HttpResponse::Ok()
+            .header(http::header::CONTENT_TYPE, "image/jpeg")
+            .body(img.data.clone())
+    }
+    else
+    {
+        HttpResponse::NotFound().body(format!("We couldn't find {}", id))
+    }
+}
+
+fn view_img_dispatch(db: web::Data<Mutex<Database>>, sess: Session, req: web::Path<String>) -> HttpResponse
+{
+    match db.lock()
+    {
+        Ok(mut db) =>
+            view_img(&mut db, &sess, &req.into_inner()),
         Err(e) =>
             return HttpResponse::InternalServerError().body(format!("{:?}", e)),
     }
@@ -251,12 +291,13 @@ fn file(f_name: &str) -> HttpResponse {
 #[actix_web::main]
 async fn main() -> io::Result<()>
 {
+    let db_base_path = std::env::current_dir()?;
     let img_store =
         web::Data::new(
             Mutex::new(
                 Database {
                     utable: default_user_table!(),
-                    icache: ImageCache::new(),
+                    icache: ImageTable::new(db_base_path),
                 }));
 
     HttpServer::new(move || {
@@ -267,19 +308,21 @@ async fn main() -> io::Result<()>
             )
             .app_data(img_store.clone())
             // User Endpoints
-            .route("/add",           web::post().to(add_img_dispatch))
-            .route("/remove",        web::delete().to(remove_img_dispatch))
-            .route("/summary",       web::get().to(user_img_summary))
+            .route("/add",             web::post().to(add_img_dispatch))
+            .route("/remove",          web::delete().to(remove_img_dispatch))
+            .route("/summary",         web::get().to(user_img_summary))
+            .route("/view/{image_id}", web::get().to(view_img_dispatch))
             // Admin Endponts
-            .route("/admin/summary", web::get().to(admin_img_summary))
-            .route("/admin/backup",  web::get().to(admin_db_persist))
-            .route("/admin/restore", web::get().to(admin_db_restore))
+            .route("/admin/summary",   web::get().to(admin_img_summary))
+            .route("/admin/backup",    web::get().to(admin_db_persist))
+            .route("/admin/restore",   web::get().to(admin_db_restore))
             // User & Admin Endpoints
-            .route("/logon",         web::post().to(logon_dispatch))
-            .route("/logoff",        web::post().to(logoff_dispatch))
+            .route("/logon",           web::post().to(logon_dispatch))
+            .route("/logoff",          web::post().to(logoff_dispatch))
             // Web Endpoints
-            .route("/",              web::get().to(|| {file("public/index.html")}))
-            .route("/style.css",     web::get().to(|| {file("public/style.css")}))
+            .route("/",                web::get().to(|| {file("public/index.html")}))
+            .route("/style.css",       web::get().to(|| {file("public/style.css")}))
+            .route("*",                web::get().to(|| {file("public/404.html")}))
             .wrap(
                 Cors::default()
             )
