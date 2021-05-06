@@ -50,7 +50,7 @@ struct User
 type ImageKey = String;
 type ImageTable = DiskCache<ImageKey, Image>;
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Image
 {
     public: bool,

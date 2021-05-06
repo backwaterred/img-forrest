@@ -1,20 +1,23 @@
+use std::cmp::Eq;
+use std::hash::Hash;
+use std::fmt::Display;
 use std::error::Error;
-use std::io::{ Read, Write };
+use std::io::Write;
 use std::path::PathBuf;
 use std::fs::{
-    DirBuilder, DirEntry,
-    File,
+    self, File,
 };
-use std::collections::HashMap;
+use std::collections::{ HashMap, HashSet, };
 
 use bincode;
 use serde::{ Deserialize, Serialize };
+use serde::de::DeserializeOwned;
 
 /// This is the primary API for the module.
 pub trait Table<K,V>
 {
     fn set(&mut self, k: K, v: V) -> Option<V>;
-    fn get(&self, k: &K) -> Option<&V>;
+    fn get(&mut self, k: &K) -> Option<&V>;
     fn contains_key(&self, k: &K) -> bool;
     fn remove(&mut self, k: &K) -> Option<V>;
 }
@@ -23,7 +26,7 @@ pub trait Table<K,V>
 pub struct HBT<K,V>(HashMap<K,V>);
 
 impl<K,V> HBT<K,V>
-    where K: std::cmp::Eq + std::hash::Hash
+    where K: Eq + Hash
 {
     pub fn new() -> Self
     {
@@ -32,14 +35,14 @@ impl<K,V> HBT<K,V>
 }
 
 impl<K,V> Table<K,V> for HBT<K,V>
-    where K: std::cmp::Eq + std::hash::Hash
+    where K: Eq + Hash
 {
     fn set(&mut self, k: K, v: V) -> Option<V>
     {
         self.0.insert(k,v)
     }
 
-    fn get(&self, k: &K) -> Option<&V>
+    fn get(&mut self, k: &K) -> Option<&V>
     {
         self.0.get(k)
     }
@@ -57,35 +60,51 @@ impl<K,V> Table<K,V> for HBT<K,V>
 
 /// A Lazy-Populated Cache of items persisted by the system disk
 pub struct DiskCache<K,V>
-    where K: std::cmp::Eq + std::hash::Hash + std::fmt::Display,
-          V: Deserialize + Serialize
+    where K: Eq + Hash + Display,
+          V: DeserializeOwned + Serialize
 {
     base_path: PathBuf,
+    disk_update_required: HashSet<K>,
     cache: HashMap<K,V>,
 }
 
 impl<K,V> DiskCache<K,V>
-    where K: std::cmp::Eq + std::hash::Hash + std::fmt::Display,
-          V: Deserialize + Serialize
+    where K: Eq + Hash + Display,
+          V: DeserializeOwned + Serialize
 {
     pub fn new(base_path: PathBuf) -> Self
     {
         DiskCache
         {
             base_path,
+            disk_update_required: HashSet::<K>::new(),
             cache: HashMap::<K,V>::new(),
         }
     }
 
     pub fn persist(&self) -> Result<(), Box<dyn Error>>
     {
-        for (k,v) in self.cache.iter()
+        for k in self.disk_update_required.iter()
         {
-            let fpath = self.make_path(k);
-            let mut f = File::create(fpath)?;
+            if let Some(v) = self.cache.get(k)
+            {
+                // Update record
+                let fpath = self.make_path(k);
+                let mut f = File::create(fpath)?;
 
-            let fdata = bincode::serialize(&v)?;
-            f.write(&fdata)?;
+                let fdata = bincode::serialize(v)?;
+                f.write(&fdata)?;
+            }
+            else if self.is_on_disk(k)
+            {
+                // Remove record
+                eprint!("Removing {:?}", self.make_path(k));
+                fs::remove_file(self.make_path(k))?;
+            }
+            else
+            {
+                eprint!("Warning: Inconsistant state! {} marked as update required, but neither in cache nor on disk.", k);
+            }
         }
 
         Ok(())
@@ -104,45 +123,37 @@ impl<K,V> DiskCache<K,V>
         self.make_path(k).exists()
     }
 
-    fn get_from_disk(&mut self, k: &K) -> Result<V, Box<dyn Error>>
+    fn get_from_disk(&self, k: &K) -> Result<Box<V>, Box<dyn Error>>
     {
         let path = self.make_path(k);
-        let mut buf = Vec::new();
 
         let file = File::open(path)?;
-        let len = file.read(&mut buf)?;
-        let data: V = bincode::deserialize(&buf[..len])?;
+        let data: V = bincode::deserialize_from(file)?;
 
-        Ok(data)
+        Ok(Box::new(data))
     }
 }
 
 impl<K,V> Table<K,V> for DiskCache<K,V>
-    where K: std::cmp::Eq + std::hash::Hash + std::fmt::Display,
-          V: Deserialize + Serialize
+    where K: Clone + Display + Eq + Hash,
+          V: DeserializeOwned + Serialize
 {
     fn set(&mut self, k: K, v: V) -> Option<V>
     {
+        self.disk_update_required.insert(k.clone());
         self.cache.insert(k,v)
     }
 
-    fn get(&self, k: &K) -> Option<&V>
+    fn get(&mut self, k: &K) -> Option<&V>
     {
-        if self.contains_key(k)
+        if self.cache.contains_key(k)
         {
             self.cache.get(k)
         }
-        else if self.is_on_disk(k)
+        else if let Ok(boxed_v) = self.get_from_disk(k)
         {
-            if let Ok(v) = self.get_from_disk(k)
-            {
-                self.set(k.clone(), v);
-                self.cache.get(k)
-            }
-            else
-            {
-                None
-            }
+            self.cache.insert((*k).clone(), *boxed_v);
+            self.cache.get(k)
         }
         else
         {
@@ -152,11 +163,13 @@ impl<K,V> Table<K,V> for DiskCache<K,V>
 
     fn contains_key(&self, k: &K) -> bool
     {
-        self.cache.contains_key(k)
+        self.cache.contains_key(k) ||
+        self.is_on_disk(k)
     }
 
     fn remove(&mut self, k: &K) -> Option<V>
     {
+        self.disk_update_required.insert((*k).clone());
         self.cache.remove(k)
     }
 }
@@ -166,12 +179,10 @@ mod test
 {
     use super::*;
 
-    use std::fs;
-
-    #[derive(Hash, Eq, PartialEq)]
+    #[derive(Clone, Hash, Eq, PartialEq)]
     struct TestKey { k: String }
 
-    impl std::fmt::Display for TestKey
+    impl Display for TestKey
     {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result
         {
@@ -179,29 +190,49 @@ mod test
         }
     }
 
-    #[derive(Serialize)]
+    #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
     struct TestVal { v: String }
 
-//    #[test]
-//    fn create_test_records()
-//    {
-//        let mut base_path = std::env::current_dir().unwrap();
-//        base_path.push("test-db");
-//        let key = TestKey { k: String::from("this-record-exists") };
-//        let val = TestVal { v: String::from("~~~~😸 + 🦀 = 🎇~~~~")};
-//        let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
-//        dc.set(key, val);
-//
-//        dc.persist().unwrap();
-//
-//        panic!()
-//    }
+    const TEST_STR: &str = "~~~~😸 + 🦀 = 🎇~~~~";
+
+   // #[test]
+   // fn create_test_records()
+   // {
+   //     // For creating any needed test resources uncomment this fn
+   //     let mut base_path = std::env::current_dir().unwrap();
+   //     base_path.push("test-db");
+
+   //     let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
+   //     for n in 0..8
+   //     {
+   //         let key = TestKey { k: String::from(format!("multiple-record-{}", n)) };
+   //         let val = TestVal { v: String::from(TEST_STR)};
+   //         dc.set(key, val);
+   //     }
+
+   //     dc.persist().unwrap();
+
+   //     panic!()
+   // }
+   //
+
+    fn scrub_a_dub(record: &PathBuf)
+    {
+        // Clean up created resources if present
+        match fs::remove_file(record)
+        {
+            Ok(_) => {},
+            Err(_) => {},
+        };
+
+       assert!(!record.exists());
+    }
 
     #[test]
     fn add_contains_rm_dc_sanity()
     {
-        let foo = String::from("foo");
-        let bar = String::from("bar");
+        let foo = String::from("this-record-not-persisted");
+        let bar = String::from("Hello World!");
         let mut dc = DiskCache::new(PathBuf::new());
 
         assert!(!dc.contains_key(&foo));
@@ -212,14 +243,66 @@ mod test
     }
 
     #[test]
+    fn dc_contains_key_finds_records_on_disk()
+    {
+        let mut base_path = std::env::current_dir().unwrap();
+        base_path.push("test-db");
+        let dc = DiskCache::<TestKey, TestVal>::new(base_path);
+
+        let key = TestKey { k: String::from("this-record-exists") };
+
+        assert!(!dc.cache.contains_key(&key));
+        assert!(dc.contains_key(&key));
+    }
+
+    #[test]
     fn dc_adds_extant_record()
     {
         let mut base_path = std::env::current_dir().unwrap();
         base_path.push("test-db");
-        let key = TestKey { k: String::from("this-record-exists") };
-        let dc = DiskCache::<TestKey, TestVal>::new(base_path);
+        let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
 
-        assert!(dc.contains_key(&key));
+        let key = TestKey { k: String::from("this-record-exists") };
+
+        assert!(!dc.cache.contains_key(&key));
+        assert_eq!(
+            &TestVal { v: String::from(TEST_STR) },
+            dc.get(&key).unwrap()
+        );
+
+        assert_eq!(1, dc.cache.len());
+        assert!(dc.cache.contains_key(&key));
+    }
+
+    #[test]
+    fn dc_adds_multiple_extant_record()
+    {
+        let mut base_path = std::env::current_dir().unwrap();
+        base_path.push("test-db");
+        let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
+
+        let mut keys = Vec::with_capacity(8);
+        for n in 0..8
+        {
+            let key = TestKey { k: String::from(format!("multiple-record-{}", n)) };
+            keys.push(key);
+        }
+
+        for key in &keys
+        {
+            dc.get(key);
+        }
+
+        assert_eq!(8, dc.cache.len());
+
+        for key in &keys
+        {
+            assert!(dc.contains_key(&key));
+            assert_eq!(
+                &TestVal { v: String::from(TEST_STR) },
+                dc.get(&key).unwrap()
+            );
+        }
     }
 
     #[test]
@@ -228,45 +311,104 @@ mod test
         let mut base_path = std::env::current_dir().unwrap();
         base_path.push("test-db");
         let key = TestKey { k: String::from("this-record-does-not-exist") };
-        let dc = DiskCache::<TestKey, TestVal>::new(base_path);
+        let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
+        dc.get(&key);
 
         assert!(!dc.contains_key(&key));
     }
 
     #[test]
-    fn dc_doesnt_add_extant_record_with_garbage_data()
+    fn dc_persists_new_records_to_disk()
     {
-        let mut base_path = std::env::current_dir().unwrap();
-        base_path.push("test-db");
-        let key = TestKey { k: String::from("this-record-contains-garbage-data") };
-        let dc = DiskCache::<TestKey, TestVal>::new(base_path);
-
-        assert!(!dc.contains_key(&key));
-    }
-
-    #[test]
-    fn dc_persists_records_to_disk()
-    {
-        let foo = String::from("foo");
-        let bar = String::from("bar");
+        let key = String::from("a-new-record");
+        let val = String::from("bar");
         let mut test_db = std::env::current_dir().unwrap();
-        test_db.push("test-db/");
-        assert!(test_db.is_dir());
+        test_db.push("test-db");
 
-        let mut dc = DiskCache::new(test_db.clone());
+        let mut record = test_db.clone();
+        let mut dc = DiskCache::new(test_db);
+        record.push(&key);
 
         // Records should not be present before starting
-        test_db.push("foo");
-        assert!(!test_db.exists());
+        // or else this test is meaningless
+        scrub_a_dub(&record);
 
-        dc.set(foo.clone(), bar.clone());
+        dc.set(key.clone(), val.clone());
         dc.persist().unwrap();
 
-        // Records should be present after pesist operation
-        assert!(test_db.exists());
+        // Records should be present after persist operation
+        assert!(record.exists());
 
-        // Clean up created resources
-        fs::remove_file(test_db).unwrap();
+        // Clean Up
+        scrub_a_dub(&record);
     }
 
+    #[test]
+    fn dc_persist_removes_from_disk()
+    {
+        let key = String::from("a-record-on-disk");
+        let val = String::from("bar");
+        let mut test_db = std::env::current_dir().unwrap();
+        test_db.push("test-db");
+
+        let mut record = test_db.clone();
+        let mut dc = DiskCache::new(test_db);
+        record.push(&key);
+
+        // Set initial value on disk
+        scrub_a_dub(&record);
+        dc.set(key.clone(), val.clone());
+        dc.persist().unwrap();
+
+        dc.cache.clear();
+
+        // Record should not be present on disk
+        // after remove & persist
+        dc.remove(&key);
+        dc.persist().unwrap();
+        assert!(!record.exists());
+
+        // Clean Up
+        scrub_a_dub(&record);
+    }
+
+    #[test]
+    fn dc_persist_updates_existing_record()
+    {
+        let key = String::from("a-record-to-update");
+        let val0 = String::from("bar");
+        let val1 = String::from("baz");
+        let mut test_db = std::env::current_dir().unwrap();
+        test_db.push("test-db");
+
+        let mut record = test_db.clone();
+        let mut dc = DiskCache::new(test_db);
+        record.push(&key);
+
+        // Records should not be present before starting
+        scrub_a_dub(&record);
+
+        // Set initial value on disk
+        dc.set(key.clone(), val0.clone());
+        dc.persist().unwrap();
+        assert!(record.exists());
+
+        dc.cache.clear();
+
+        // Set updated value on disk
+        dc.remove(&key);
+        dc.set(key.clone(), val1.clone());
+        dc.persist().unwrap();
+
+        dc.cache.clear();
+
+        assert!(record.exists());
+        assert_eq!(
+            &val1,
+            dc.get(&key).unwrap()
+        );
+
+        // Clean Up
+        scrub_a_dub(&record);
+    }
 }
