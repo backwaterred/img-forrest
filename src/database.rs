@@ -4,9 +4,7 @@ use std::fmt::Display;
 use std::error::Error;
 use std::io::Write;
 use std::path::PathBuf;
-use std::fs::{
-    self, File,
-};
+use std::fs::{ self, File, };
 use std::collections::{ HashMap, HashSet, };
 
 use bincode;
@@ -200,7 +198,7 @@ mod test
    // {
    //     // For creating any needed test resources uncomment this fn
    //     let mut base_path = std::env::current_dir().unwrap();
-   //     base_path.push("test-db");
+   //     base_path.push("database-test-db");
 
    //     let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
    //     for n in 0..8
@@ -246,7 +244,7 @@ mod test
     fn dc_contains_key_finds_records_on_disk()
     {
         let mut base_path = std::env::current_dir().unwrap();
-        base_path.push("test-db");
+        base_path.push("database-test-db");
         let dc = DiskCache::<TestKey, TestVal>::new(base_path);
 
         let key = TestKey { k: String::from("this-record-exists") };
@@ -259,7 +257,7 @@ mod test
     fn dc_adds_extant_record()
     {
         let mut base_path = std::env::current_dir().unwrap();
-        base_path.push("test-db");
+        base_path.push("database-test-db");
         let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
 
         let key = TestKey { k: String::from("this-record-exists") };
@@ -278,7 +276,7 @@ mod test
     fn dc_adds_multiple_extant_record()
     {
         let mut base_path = std::env::current_dir().unwrap();
-        base_path.push("test-db");
+        base_path.push("database-test-db");
         let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
 
         let mut keys = Vec::with_capacity(8);
@@ -309,7 +307,7 @@ mod test
     fn dc_doesnt_add_non_extant_record()
     {
         let mut base_path = std::env::current_dir().unwrap();
-        base_path.push("test-db");
+        base_path.push("database-test-db");
         let key = TestKey { k: String::from("this-record-does-not-exist") };
         let mut dc = DiskCache::<TestKey, TestVal>::new(base_path);
         dc.get(&key);
@@ -323,7 +321,7 @@ mod test
         let key = String::from("a-new-record");
         let val = String::from("bar");
         let mut test_db = std::env::current_dir().unwrap();
-        test_db.push("test-db");
+        test_db.push("database-test-db");
 
         let mut record = test_db.clone();
         let mut dc = DiskCache::new(test_db);
@@ -349,7 +347,7 @@ mod test
         let key = String::from("a-record-on-disk");
         let val = String::from("bar");
         let mut test_db = std::env::current_dir().unwrap();
-        test_db.push("test-db");
+        test_db.push("database-test-db");
 
         let mut record = test_db.clone();
         let mut dc = DiskCache::new(test_db);
@@ -379,7 +377,7 @@ mod test
         let val0 = String::from("bar");
         let val1 = String::from("baz");
         let mut test_db = std::env::current_dir().unwrap();
-        test_db.push("test-db");
+        test_db.push("database-test-db");
 
         let mut record = test_db.clone();
         let mut dc = DiskCache::new(test_db);
