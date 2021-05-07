@@ -21,6 +21,8 @@ use crate::database::{
     DiskCache, HBT,
     Table,
 };
+#[cfg(test)]
+mod server_test;
 
 const SERV_PRIVATE_KEY: [u8; 32] = [0; 32];
 
@@ -303,7 +305,7 @@ async fn main() -> io::Result<()>
             )
            .app_data(
                web::JsonConfig::default()
-                   .limit(256*1024)
+                   .limit(1024*1024)
            )
             .app_data(img_store.clone())
             // User Endpoints
