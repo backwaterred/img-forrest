@@ -2,7 +2,7 @@
 
 Welcome to Image Forest, a great place to cache your images to keep them safe during the winter. Any images which are part of the database when a user logs off will be squirreled away for next season.
 
-For a detailed overview of the project, start the server and navigate to [http://localhost:8080/](http://localhost:8080/)
+For a detailed overview of the project, start the server and navigate to http://localhost:8080/
 
 ## Install/Test/Run instructions
 

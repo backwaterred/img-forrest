@@ -5,6 +5,8 @@ The main feature of this image server is the lazy (as in on-demand) populated, d
 
 In addition to the disk-backed cache, the server provides logon/logoff, add/remove, and view capabilites. This is present mainly to showcase the disk backed cache. The logon/logoff functionality is especially trivial, and should not be expeced to hold up under any serious (cyber) attack. Add, remove, and view are expected to work well and showcase the functionality of the cache.
 
+![](https://www.thetimes.co.uk/imageserver/image/methode%2Ftimes%2Fprod%2Fweb%2Fbin%2Fd35c6a54-8b51-11e7-a5d5-0066a735a5c3.jpg?crop=4686%2C2636%2C792%2C465)
+
 The server comes pre-loaded with several users who love nuts, hate cats, and are storing images in the cache. See the note in [logon](#logon) for more info.
 
 ## Docs
