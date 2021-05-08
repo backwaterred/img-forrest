@@ -19,6 +19,8 @@ The following REST endpoints are offered.
 
 Views an image on the server. Unless the image has been added with public set to true, *Login required*.
 
+> *Note:* As a simplification, the server assumes that all images are JPEGs, and sets the MIME type of the header accordingly.
+
 ##### Example
 
 Point a browser to [/view/out-on-the-town](http://localhost:8080/view/out-on-the-town)

@@ -46,6 +46,9 @@
 <h3 id="view">View</h3>
 <p><code>GET /view/&lt;image-id&gt;</code></p>
 <p>Views an image on the server. Unless the image has been added with public set to true, <em>Login required</em>.</p>
+<blockquote>
+<p><em>Note:</em> As a simplification, the server assumes that all images are JPEGs, and sets the MIME type of the header accordingly.</p>
+</blockquote>
 <h5 id="example">Example</h5>
 <p>Point a browser to <a href="http://localhost:8080/view/out-on-the-town">/view/out-on-the-town</a></p>
 <h4 id="return-codes">Return Codes</h4>
