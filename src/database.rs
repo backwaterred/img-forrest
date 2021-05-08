@@ -8,6 +8,7 @@ use std::fs::{ self, File, };
 use std::collections::{ HashMap, HashSet, };
 
 use bincode;
+#[allow(unused_imports)]
 use serde::{ Deserialize, Serialize };
 use serde::de::DeserializeOwned;
 
@@ -96,12 +97,11 @@ impl<K,V> DiskCache<K,V>
             else if self.is_on_disk(k)
             {
                 // Remove record
-                eprint!("Removing {:?}", self.make_path(k));
                 fs::remove_file(self.make_path(k))?;
             }
             else
             {
-                eprint!("Warning: Inconsistant state! {} marked as update required, but neither in cache nor on disk.", k);
+                // A double remove perhaps?
             }
         }
 

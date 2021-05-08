@@ -1,1 +1,124 @@
-Hello World!
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>🌲 Image Forest</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="style.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">🌲 Image Forest</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#features">Features</a></li>
+<li><a href="#docs">Docs</a>
+<ul>
+<li><a href="#view">View</a></li>
+<li><a href="#add">Add</a></li>
+<li><a href="#remove">Remove</a></li>
+<li><a href="#logon">Logon</a></li>
+<li><a href="#logoff">Logoff</a></li>
+</ul></li>
+</ul>
+</nav>
+<h2 id="features">Features</h2>
+<p>The main feature of this image server is the lazy (as in on-demand) populated, disk backed cache. When a user logs out images that are newly added, or updated since login will be written to the system disk. When a user asks for an image, the in-memory cache is checked. If the image is not in memory, it will be loaded from disk if present. The database can be queried to learn if an item is present without bringing it into memeory.</p>
+<p>In addition to the disk-backed cache, the server provides logon/logoff, add/remove, and view capabilites. This is present mainly to showcase the disk backed cache. The logon/logoff functionality is especially trivial, and should not be expeced to hold up under any serious (cyber) attack. Add, remove, and view are expected to work well and showcase the functionality of the cache.</p>
+<p>The server comes pre-loaded with several users who love nuts, hate cats, and are storing images in the cache. See the note in <a href="#logon">logon</a> for more info.</p>
+<h2 id="docs">Docs</h2>
+<p>The following REST endpoints are offered.</p>
+<h3 id="view">View</h3>
+<p><code>GET /view/&lt;image-id&gt;</code></p>
+<p>Views an image on the server. Unless the image has been added with public set to true, <em>Login required</em>.</p>
+<h5 id="example">Example</h5>
+<p>Point a browser to <a href="http://localhost:8080/view/out-on-the-town">/view/out-on-the-town</a></p>
+<h4 id="return-codes">Return Codes</h4>
+<ul>
+<li><em>200</em>: On success.</li>
+<li><em>401</em>: When not logged in and the image is private.</li>
+<li><em>404</em>: When the image cannot be found on the server.</li>
+</ul>
+<h3 id="add">Add</h3>
+<p><code>POST /add</code></p>
+<p>Adds an image to the server. <em>Login required</em></p>
+<p>Body must contain a JSON-object with <em>id</em> and <em>img</em>. The max size of the request is 1 MiB.</p>
+<ul>
+<li><em>id</em>: String. Specifies the database-wide image id. Can be any valid unicode.</li>
+<li><em>img</em>: String. The base64 encoded image data.</li>
+<li><em>public</em>: Boolean (optional). Specifies whether the image is accessible by anyone, or just the user who uploaded it.</li>
+</ul>
+<h5 id="example-1">Example</h5>
+<pre><code>{
+    &quot;id&quot; : &quot;bounty&quot;,
+    &quot;public&quot; : false,
+    &quot;img&quot; : &quot;&lt;base64-encoded-image-data&gt;&quot;
+}</code></pre>
+<h4 id="return-codes-1">Return Codes</h4>
+<ul>
+<li><em>200</em>: On success.</li>
+<li><em>401</em>: When not logged in.</li>
+<li><em>409</em>: When image id cannot be added because it is already in use.</li>
+</ul>
+<h3 id="remove">Remove</h3>
+<p><code>POST /remove</code></p>
+<p>Removes an image from the server. <em>Login required</em></p>
+<p>The body of the request must contain a JSON-object with the <em>id</em> of the image to be removed.</p>
+<ul>
+<li><em>id</em>: String. Specifies the database-wide image id. Can be any valid unicode.</li>
+</ul>
+<h5 id="example-2">Example</h5>
+<pre><code>{ 
+    &quot;id&quot; : &quot;a-normal-cat&quot;
+}</code></pre>
+<h4 id="return-codes-2">Return Codes</h4>
+<ul>
+<li><em>200</em>: On success.</li>
+<li><em>401</em>: When not logged in.</li>
+<li><em>404</em>: When image id cannot be removed because it cannot be found.</li>
+</ul>
+<h3 id="logon">Logon</h3>
+<p><code>POST /logon</code></p>
+<p>Logs on to the server by setting the auth-user field in an encrypted cookie. This simulates a bearer token.</p>
+<p>Body must contain a JSON-object with <em>uname</em> and <em>hpass</em>.</p>
+<ul>
+<li><em>uname</em>: String. The username present in the table of users.</li>
+<li><em>hpass</em>: String. The password hash present in the table of users.</li>
+</ul>
+<blockquote>
+<p><em>Note:</em> The user table is initialized with users: chipper, nutty and blitz. Their password hashes are all 5f4dcc3b5aa765d61d8327deb882cf99.</p>
+</blockquote>
+<h5 id="example-3">Example</h5>
+<pre><code>{ 
+    &quot;uname&quot; : &quot;blitz&quot;,
+    &quot;hpass&quot; : &quot;5f4dcc3b5aa765d61d8327deb882cf99&quot;
+}</code></pre>
+<h4 id="return-codes-3">Return Codes</h4>
+<ul>
+<li><em>200</em>: On success.</li>
+<li><em>401</em>: When authentication is unsuccessful.</li>
+</ul>
+<h3 id="logoff">Logoff</h3>
+<p><code>POST /logoff</code></p>
+<p>Logs off the server.</p>
+<p>No body is required. The server simply invalidates the current logon cookie if present.</p>
+<h4 id="return-codes-4">Return Codes</h4>
+<ul>
+<li><em>200</em>: On success.</li>
+</ul>
+</body>
+</html>

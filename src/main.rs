@@ -32,11 +32,11 @@ macro_rules! default_user_table(
     {{
         let mut utable = HBT::new();
 
-        utable.set(String::from("leo"),
+        utable.set(String::from("chipper"),
                    User{ hpass: String::from("5f4dcc3b5aa765d61d8327deb882cf99") });
-        utable.set(String::from("sphinx"),
+        utable.set(String::from("nutty"),
                    User{ hpass: String::from("5f4dcc3b5aa765d61d8327deb882cf99") });
-        utable.set(String::from("tony"),
+        utable.set(String::from("blitz"),
                    User{ hpass: String::from("5f4dcc3b5aa765d61d8327deb882cf99") });
 
         utable
@@ -96,9 +96,14 @@ pub struct LogonRequest
 
 fn add_img(db: &mut Database, sess: &Session, req: &AddRequest) -> HttpResponse
 {
-    if let Some(auth_user) = auth::get_auth_user(sess)
+    match (auth::get_auth_user(sess), db.icache.contains_key(&req.id))
     {
-        if !db.icache.contains_key(&req.id)
+        (_, true) =>
+            HttpResponse::Conflict()
+            .body(format!("{} is already present in the database. Please use another id, or remove the existing value.", req.id)),
+        (None, _) =>
+            HttpResponse::Unauthorized().finish(),
+        (Some(auth_user), false) =>
         {
             let img_data: Vec<u8> = match base64::decode(&req.img)
             {
@@ -115,15 +120,7 @@ fn add_img(db: &mut Database, sess: &Session, req: &AddRequest) -> HttpResponse
             });
 
             HttpResponse::Ok().body(format!("Added {} to the database.", req.id))
-        }
-        else
-        {
-            HttpResponse::Conflict().body(format!("{} is already present in the database. Please use another id, or remove the existing value.", req.id))
-        }
-    }
-    else
-    {
-        HttpResponse::Unauthorized().finish()
+        },
     }
 }
 
@@ -140,20 +137,22 @@ fn add_img_dispatch(db: web::Data<Mutex<Database>>, sess: Session, req: web::Jso
 
 fn remove_img(db: &mut Database, sess: &Session, req: &RmRequest) -> HttpResponse
 {
-    if let Some(_auth_user) = auth::get_auth_user(sess)
+    match (auth::get_auth_user(sess), db.icache.get(&req.id))
     {
-        if db.icache.remove(&req.id).is_some()
-        {
-            HttpResponse::Ok().body(format!("Removed {} from the database.", req.id))
-        }
-        else
-        {
-            HttpResponse::Conflict().body(format!("{} is not present in the database and cannot be removed.", req.id))
-        }
-    }
-    else
-    {
-        HttpResponse::Unauthorized().finish()
+        (_, None) =>
+            HttpResponse::NotFound().body(format!("We couldn't find {}", req.id)),
+        (None, _) =>
+            HttpResponse::Unauthorized().finish(),
+        (Some(auth_user), Some(img)) =>
+            if auth_user == img.owner
+            {
+                db.icache.remove(&req.id);
+                HttpResponse::Ok().body(format!("Removed {} from the database.", req.id))
+            }
+            else
+            {
+                HttpResponse::Unauthorized().finish()
+            },
     }
 }
 
@@ -288,6 +287,12 @@ async fn main() -> io::Result<()>
 {
     let mut db_base_path = std::env::current_dir()?;
     db_base_path.push("live-db");
+
+
+    println!("🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲");
+    println!("🥜🥜🥜🥜🥜🥜 Starting Img-Forest Server 🥜🥜🥜🥜🥜🥜");
+    println!("🥜🥜🥜🥜🥜🥜 http://localhost:8080 🥜🥜🥜🥜🥜🥜🥜🥜");
+    println!("🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲🌲");
 
     let img_store =
         web::Data::new(
