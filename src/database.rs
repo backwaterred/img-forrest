@@ -22,9 +22,9 @@ pub trait Table<K,V>
 }
 
 /// A Hash(map)-Backed-Table with no persistant storage
-pub struct HBT<K,V>(HashMap<K,V>);
+pub struct MemCache<K,V>(HashMap<K,V>);
 
-impl<K,V> HBT<K,V>
+impl<K,V> MemCache<K,V>
     where K: Eq + Hash
 {
     pub fn new() -> Self
@@ -33,7 +33,7 @@ impl<K,V> HBT<K,V>
     }
 }
 
-impl<K,V> Table<K,V> for HBT<K,V>
+impl<K,V> Table<K,V> for MemCache<K,V>
     where K: Eq + Hash
 {
     fn set(&mut self, k: K, v: V) -> Option<V>

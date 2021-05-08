@@ -18,7 +18,7 @@ use serde::{
 mod auth;
 mod database;
 use crate::database::{
-    DiskCache, HBT,
+    DiskCache, MemCache,
     Table,
 };
 #[cfg(test)]
@@ -30,7 +30,7 @@ const SERV_PRIVATE_KEY: [u8; 32] = [0; 32];
 macro_rules! default_user_table(
     () =>
     {{
-        let mut utable = HBT::new();
+        let mut utable = MemCache::new();
 
         utable.set(String::from("chipper"),
                    User{ hpass: String::from("5f4dcc3b5aa765d61d8327deb882cf99") });
@@ -46,7 +46,7 @@ macro_rules! default_user_table(
 // ---- DataTypes ----
 
 pub type UserKey = String;
-type UserTable = HBT<UserKey, User>;
+type UserTable = MemCache<UserKey, User>;
 
 pub struct User
 {
@@ -139,10 +139,10 @@ fn remove_img(db: &mut Database, sess: &Session, req: &RmRequest) -> HttpRespons
 {
     match (auth::get_auth_user(sess), db.icache.get(&req.id))
     {
-        (_, None) =>
-            HttpResponse::NotFound().body(format!("We couldn't find {}", req.id)),
         (None, _) =>
             HttpResponse::Unauthorized().finish(),
+        (_, None) =>
+            HttpResponse::NotFound().body(format!("We couldn't find {}", req.id)),
         (Some(auth_user), Some(img)) =>
             if auth_user == img.owner
             {
